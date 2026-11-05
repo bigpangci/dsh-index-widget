@@ -44,6 +44,29 @@ window.__ModuleLoader__.load({
     const WIDTH_STEP = 10
     const WIDTH_DEFAULT = 220
 
+    /** localStorage key and defaults for the danmaku layer. */
+    const DANMAKU_KEY = 'dsh-index-widget:danmaku'
+    const DANMAKU_DEFAULT = { on: false, size: 15, speed: 24, opacity: 0.5, density: 1 }
+
+    /** Danmaku font size range, pixels. */
+    const SIZE_MIN = 10
+    const SIZE_MAX = 26
+
+    /** Seconds one item takes to cross the window. */
+    const SPEED_MIN = 8
+    const SPEED_MAX = 45
+
+    /** Items spawned per 1.6 seconds. */
+    const DENSITY_MIN = 0.4
+    const DENSITY_MAX = 2.5
+
+    /** Item opacity range. */
+    const OPACITY_MIN = 0.15
+    const OPACITY_MAX = 0.9
+
+    /** Hard ceiling on live items, so a stalled compositor cannot pile them up. */
+    const DANMAKU_MAX = 18
+
     /** Broad market indices. */
     const INDICES = [
       { code: '000001', secid: '1.000001', name: '上证' },
@@ -114,7 +137,7 @@ window.__ModuleLoader__.load({
     const KEYS = { indices: INDEX_KEY, metals: METAL_KEY, boards: BOARD_KEY }
 
     const CSS = `
-      .dsh-index-shell, .dsh-index-panel {
+      .dsh-index-shell, .dsh-index-panel, .dsh-index-danmaku {
         --dsh-up: #ff6b6b;
         --dsh-down: #2fbf71;
         --dsh-flat: #a9b1bd;
@@ -133,7 +156,7 @@ window.__ModuleLoader__.load({
         --dsh-chip: #b9c3d1;
         --dsh-field: rgba(8, 11, 16, 0.6);
       }
-      .dsh-index-shell[data-scheme="light"], .dsh-index-panel[data-scheme="light"] {
+      .dsh-index-shell[data-scheme="light"], .dsh-index-panel[data-scheme="light"], .dsh-index-danmaku[data-scheme="light"] {
         --dsh-up: #d92b2b;
         --dsh-down: #0e8a4f;
         --dsh-flat: #6c7683;
@@ -179,6 +202,29 @@ window.__ModuleLoader__.load({
         animation: dsh-index-marquee var(--dsh-index-lap, 26s) linear infinite;
       }
       .dsh-index-ticker:hover .dsh-index-track { animation-play-state: paused; }
+      @keyframes dsh-index-danmaku {
+        from { transform: translate3d(100vw, 0, 0); }
+        to { transform: translate3d(-100%, 0, 0); }
+      }
+      .dsh-index-danmaku {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        user-select: none;
+        z-index: 900;
+      }
+      .dsh-index-danmaku-item {
+        position: absolute;
+        left: 0;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        will-change: transform;
+        animation-name: dsh-index-danmaku;
+        animation-timing-function: linear;
+        animation-fill-mode: forwards;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+      }
       .dsh-index-body { overflow-y: auto; max-height: 58vh; margin-right: -4px; padding-right: 4px; }
       .dsh-index-body::-webkit-scrollbar { width: 6px; }
       .dsh-index-body::-webkit-scrollbar-thumb { background: var(--dsh-capsule-border); border-radius: 3px; }
@@ -237,6 +283,7 @@ window.__ModuleLoader__.load({
       }
       @media (prefers-reduced-motion: reduce) {
         .dsh-index-track { animation: none; }
+        .dsh-index-danmaku { display: none; }
       }
     `
 
@@ -307,6 +354,31 @@ window.__ModuleLoader__.load({
       return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(saved / WIDTH_STEP) * WIDTH_STEP))
     }
 
+    /** Read the saved danmaku settings, clamping every number to its range. */
+    function readDanmaku() {
+      let saved = null
+      try {
+        const raw = window.localStorage.getItem(DANMAKU_KEY)
+        if (raw) saved = JSON.parse(raw)
+      } catch { /* private mode or corrupted entry: use the defaults */ }
+      const clamp = (value, min, max, fallback) => {
+        const number = Number(value)
+        return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback
+      }
+      return {
+        on: saved?.on === true,
+        size: clamp(saved?.size, SIZE_MIN, SIZE_MAX, DANMAKU_DEFAULT.size),
+        speed: clamp(saved?.speed, SPEED_MIN, SPEED_MAX, DANMAKU_DEFAULT.speed),
+        opacity: clamp(saved?.opacity, OPACITY_MIN, OPACITY_MAX, DANMAKU_DEFAULT.opacity),
+        density: clamp(saved?.density, DENSITY_MIN, DENSITY_MAX, DANMAKU_DEFAULT.density),
+      }
+    }
+
+    /** The OS motion preference; the danmaku layer stays off when it is set. */
+    function prefersReducedMotion() {
+      try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch { return false }
+    }
+
     /** Shanghai keeps one trading clock regardless of the browser time zone. */
     function marketClock() {
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -352,6 +424,9 @@ window.__ModuleLoader__.load({
     /** Capsule width in pixels. */
     let width = readWidth()
 
+    /** Danmaku layer settings. */
+    let danmaku = readDanmaku()
+
     /** Dialog visibility, shared by the header capsule and the overlay dialog. */
     let open = false
 
@@ -387,6 +462,13 @@ window.__ModuleLoader__.load({
       emit()
     }
 
+    /** Merge one danmaku change, persist it, and let both layers re-render. */
+    function setDanmaku(next) {
+      danmaku = Object.assign({}, danmaku, next)
+      try { window.localStorage.setItem(DANMAKU_KEY, JSON.stringify(danmaku)) } catch { /* best effort */ }
+      emit()
+    }
+
     function saveStocks() {
       try { window.localStorage.setItem(STOCK_KEY, JSON.stringify(stocks)) } catch { /* best effort */ }
     }
@@ -412,7 +494,7 @@ window.__ModuleLoader__.load({
     }
 
     function read() {
-      return { snapshot, open, selection, width, stocks, scheme }
+      return { snapshot, open, selection, width, stocks, scheme, danmaku }
     }
 
     function subscribe(listener) {
@@ -646,6 +728,73 @@ window.__ModuleLoader__.load({
           [half, React.cloneElement(half, { key: 'half-copy' })])))
     }
 
+    // ---------------------------------------------------------------- danmaku
+
+    /**
+     * Quotes drifting across the whole window. Items never take pointer events
+     * and are capped, so the layer cannot block or slow down normal work.
+     */
+    function Danmaku() {
+      const { danmaku: config, scheme: theme } = useShared()
+      const [items, setItems] = React.useState([])
+      const lane = React.useRef(0)
+      const enabled = config.on && !prefersReducedMotion()
+
+      React.useEffect(() => {
+        if (!enabled) {
+          setItems([])
+          return undefined
+        }
+        const spawn = () => {
+          if (document.hidden) return
+          const rows = selectedRows(selection, stocks).filter((row) => row.quote && Number.isFinite(row.quote.price))
+          if (rows.length === 0) return
+          const row = rows[Math.floor(Math.random() * rows.length)]
+          const laneHeight = Math.round(config.size * 2.2)
+          const lanes = Math.max(1, Math.floor((window.innerHeight - 120) / laneHeight))
+          lane.current = (lane.current + 1 + Math.floor(Math.random() * 3)) % lanes
+          setItems((prev) => {
+            const item = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              name: row.name,
+              quote: row.quote,
+              top: 56 + lane.current * laneHeight,
+              duration: Math.round(config.speed * 1000 * (0.85 + Math.random() * 0.3)),
+            }
+            const kept = prev.length >= DANMAKU_MAX ? prev.slice(prev.length - DANMAKU_MAX + 1) : prev
+            return kept.concat([item])
+          })
+        }
+        spawn()
+        const timer = setInterval(spawn, Math.max(400, Math.round(1600 / config.density)))
+        return () => clearInterval(timer)
+      }, [enabled, config.size, config.speed, config.density])
+
+      if (!enabled) return null
+
+      const drop = (id) => setItems((prev) => prev.filter((item) => item.id !== id))
+
+      return h('div', { className: 'dsh-index-danmaku', 'data-scheme': theme, 'aria-hidden': 'true' },
+        items.map((item) => h('span', {
+          key: item.id,
+          className: 'dsh-index-danmaku-item',
+          style: {
+            top: item.top,
+            fontFamily: MONO,
+            fontSize: config.size,
+            lineHeight: 1.2,
+            color: colorOf(item.quote.pct),
+            opacity: config.opacity,
+            animationDuration: `${item.duration}ms`,
+          },
+          onAnimationEnd: () => drop(item.id),
+        },
+          h('span', { style: { color: TEXT, opacity: 0.85 } }, `${item.name}  `),
+          `${priceOf(item.quote.price)}  `,
+          `${item.quote.pct > 0 ? '▲' : item.quote.pct < 0 ? '▼' : ''}${signed(item.quote.pct, 2)}%`,
+        )))
+    }
+
     // ---------------------------------------------------------------- dialog
 
     const backdropStyle = {
@@ -830,8 +979,25 @@ window.__ModuleLoader__.load({
     }
 
     function Appearance() {
-      const { width: current } = useShared()
+      const { width: current, danmaku: config } = useShared()
       const presets = [150, 220, 300, 400]
+      const slider = (label, text, min, max, step, value, onChange) => h('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: config.on ? 1 : 0.45 },
+      },
+        h('span', { style: { color: QUIET, fontSize: 11, width: 60 } }, label),
+        h('input', {
+          type: 'range',
+          min,
+          max,
+          step,
+          value,
+          disabled: !config.on,
+          style: { flex: 1, accentColor: UP, cursor: config.on ? 'pointer' : 'default' },
+          onChange: (event) => onChange(Number(event.target.value)),
+        }),
+        h('span', { style: { fontFamily: MONO, fontSize: 11.5, color: TEXT, width: 60, textAlign: 'right' } }, text),
+      )
+
       return h('div', { style: { paddingTop: 10 } },
         h('div', { style: { color: QUIET, fontSize: 11, marginBottom: 6 } }, '顶部跑马灯宽度'),
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
@@ -857,13 +1023,35 @@ window.__ModuleLoader__.load({
           }, `${px} px`))),
         h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 12, lineHeight: 1.7 } },
           '只改顶部胶囊的宽度；滚动内容由「选择显示内容」里勾选的品种决定。拖动即时生效并记住。'),
+
+        h('div', {
+          style: {
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            marginTop: 16, paddingTop: 12, borderTop: `1px solid ${LINE}`,
+          },
+        },
+          h('span', { style: { color: QUIET, fontSize: 11 } }, '弹幕模式'),
+          h('button', {
+            type: 'button',
+            className: 'dsh-index-chip',
+            'data-on': config.on ? 'true' : 'false',
+            onClick: () => setDanmaku({ on: !config.on }),
+          }, config.on ? '已开启' : '已关闭'),
+        ),
+        slider('字号', `${Math.round(config.size)} px`, SIZE_MIN, SIZE_MAX, 1, config.size, (v) => setDanmaku({ size: v })),
+        slider('速度', `${Math.round(config.speed)} 秒`, SPEED_MIN, SPEED_MAX, 1, config.speed, (v) => setDanmaku({ speed: v })),
+        slider('密度', `${config.density.toFixed(1)}×`, DENSITY_MIN, DENSITY_MAX, 0.1, config.density, (v) => setDanmaku({ density: v })),
+        slider('不透明度', `${Math.round(config.opacity * 100)}%`, OPACITY_MIN, OPACITY_MAX, 0.05, config.opacity, (v) => setDanmaku({ opacity: v })),
+        h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 10, lineHeight: 1.7 } },
+          '打开后行情在整个窗口里飘过，鼠标穿透、不挡操作；顶部胶囊仍在，点它看全部报价。',
+          prefersReducedMotion() ? ' 系统已开启「减少动态效果」，弹幕会自动保持关闭。' : ''),
       )
     }
 
     function Dialog() {
       const {
         snapshot: snap, open: visible, selection: shown, width: capsuleWidth,
-        stocks: watchlist, scheme: theme,
+        stocks: watchlist, scheme: theme, danmaku: config,
       } = useShared()
       const [view, setView] = React.useState('quotes')
 
@@ -884,7 +1072,7 @@ window.__ModuleLoader__.load({
       if (!visible) return null
 
       const total = shown.indices.length + shown.metals.length + shown.boards.length + watchlist.length
-      const title = view === 'content' ? '选择显示内容' : view === 'appearance' ? '跑马灯设置' : 'A股行情'
+      const title = view === 'content' ? '选择显示内容' : view === 'appearance' ? '显示设置' : 'A股行情'
       const aside = view === 'content'
         ? `${total} 项`
         : view === 'appearance'
@@ -956,7 +1144,12 @@ window.__ModuleLoader__.load({
       }, label)
 
       const actions = view === 'quotes'
-        ? [btn('选择内容', () => setView('content')), btn('设置', () => setView('appearance')), btn('刷新', () => refresh())]
+        ? [
+          btn(config.on ? '弹幕开' : '弹幕关', () => setDanmaku({ on: !config.on })),
+          btn('选择内容', () => setView('content')),
+          btn('设置', () => setView('appearance')),
+          btn('刷新', () => refresh()),
+        ]
         : [btn('完成', () => setView('quotes'))]
 
       const footText = view !== 'quotes'
@@ -1034,6 +1227,10 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register(
           { name: 'conversation.session.header.actions', id: 'dsh-index-widget-ticker', order: 20, label: 'A股行情' },
           Ticker,
+        ))
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+          { name: 'shell.overlay', id: 'dsh-index-widget-danmaku', order: 10, label: 'A股弹幕' },
+          Danmaku,
         ))
         ctx.slots.inject('shell.overlay', () => ctx.slots.register(
           { name: 'shell.overlay', id: 'dsh-index-widget-dialog', order: 20, label: 'A股行情' },
