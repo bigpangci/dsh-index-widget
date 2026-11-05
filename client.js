@@ -919,13 +919,6 @@ window.__ModuleLoader__.load({
         const pick = (items, codes) => codes
           .map((code) => items.find((entry) => entry.code === code))
           .filter(Boolean)
-        const choose = () => h('span', {
-          className: 'dsh-index-btn',
-          role: 'button',
-          tabIndex: 0,
-          onClick: () => setView('content'),
-        }, '选择')
-
         const stockRows = watchlist.map((stock) => {
           const secid = stockSecid(stock.code)
           return quoteRow(secid, stock.name, snap.quotes[secid])
@@ -938,19 +931,19 @@ window.__ModuleLoader__.load({
           }, '行情不可用，稍后自动重试')]
           : [
             breadthLine(snap.breadth),
-            sectionTitle('大盘指数', choose()),
+            sectionTitle('大盘指数'),
             shown.indices.length > 0 ? headerRow() : null,
             ...pick(INDICES, shown.indices).map((entry) => quoteRow(entry.secid, entry.name, snap.quotes[entry.secid])),
-            shown.indices.length === 0 ? emptyLine('i0', '已隐藏，点右侧「选择」挑几个') : null,
-            sectionTitle('贵金属', choose()),
+            shown.indices.length === 0 ? emptyLine('i0', '已全部隐藏，点下方「选择内容」重新勾选') : null,
+            sectionTitle('贵金属'),
             ...pick(METALS, shown.metals).map((entry) => quoteRow(entry.secid, entry.name, snap.quotes[entry.secid])),
-            shown.metals.length === 0 ? emptyLine('m0', '已隐藏，点右侧「选择」挑几个') : null,
-            sectionTitle('自选股', choose()),
+            shown.metals.length === 0 ? emptyLine('m0', '已全部隐藏，点下方「选择内容」重新勾选') : null,
+            sectionTitle('自选股'),
             ...stockRows,
-            watchlist.length === 0 ? emptyLine('s0', '还没有自选股，点右侧「选择」添加代码') : null,
-            sectionTitle('自选板块', choose()),
+            watchlist.length === 0 ? emptyLine('s0', '还没有自选股，点下方「选择内容」添加代码') : null,
+            sectionTitle('自选板块'),
             ...pick(BOARDS, shown.boards).map((entry) => quoteRow(`90.${entry.code}`, entry.name, snap.quotes[`90.${entry.code}`])),
-            shown.boards.length === 0 ? emptyLine('b0', '还没有自选板块，点右侧「选择」挑几个') : null,
+            shown.boards.length === 0 ? emptyLine('b0', '还没有自选板块，点下方「选择内容」挑几个') : null,
           ]
         content = h('div', { className: 'dsh-index-body' }, body.filter(Boolean))
       }
