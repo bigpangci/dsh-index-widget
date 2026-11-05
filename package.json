@@ -4,7 +4,12 @@
   "private": true,
   "description": "A-share market ticker for the DeepSeek Harness Web UI: a scrolling strip in the session header that opens a full quote dialog",
   "license": "MIT",
-  "author": "fuxinhua",
+  "author": "bigpangci",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bigpangci/dsh-index-widget.git"
+  },
+  "homepage": "https://github.com/bigpangci/dsh-index-widget#readme",
   "keywords": [
     "dsh",
     "dsh-plugin",
