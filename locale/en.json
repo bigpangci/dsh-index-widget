@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "A-share index ticker",
+    "description": "A small always-on Shanghai/Shenzhen index board in the top-right corner, refreshed every 5 seconds, click-through."
+  }
+}

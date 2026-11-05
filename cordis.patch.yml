@@ -1,0 +1,4 @@
+# dsh-index-widget: mounts the host half (quote route) under the web profile.
+- insert:
+    - id: dsh-index-widget
+      name: dsh-index-widget
