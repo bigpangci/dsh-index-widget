@@ -57,6 +57,7 @@ window.__ModuleLoader__.load({
       weight: 500,
       bubble: false,
       spike: true,
+      disguise: false,
     }
 
     /** Danmaku travel directions; `alt` picks one per item. */
@@ -82,6 +83,14 @@ window.__ModuleLoader__.load({
       ['sans', '黑体'],
       ['serif', '衬线'],
       ['kai', '楷体'],
+    ]
+
+    /** Disguise mode word pool: build-pipeline nouns, one alias per instrument. */
+    const DISGUISE_NOUNS = [
+      '任务队列', '编译流水线', '构建缓存', '灰度通道', '数据管道', '索引重建',
+      '冷启动耗时', '内存占用', '磁盘吞吐', '推理延迟', '同步批次', '日志缓冲',
+      '快照任务', '调度队列', '回放窗口', '心跳探针', '分片合并', '连接池',
+      '限流计数', '预热进度',
     ]
 
     /** Danmaku font size range, pixels. */
@@ -459,6 +468,7 @@ window.__ModuleLoader__.load({
         weight: Number(saved?.weight) === 700 ? 700 : DANMAKU_DEFAULT.weight,
         bubble: saved?.bubble === true,
         spike: saved?.spike !== false,
+        disguise: saved?.disguise === true,
       }
     }
 
@@ -637,6 +647,29 @@ window.__ModuleLoader__.load({
       return Number.isFinite(value) ? value.toFixed(2) : '--'
     }
 
+    /**
+     * Stable neutral alias for disguise mode. The same name always maps to the
+     * same word, so a row keeps its identity while the text reads like build
+     * telemetry instead of a quote board.
+     */
+    const disguiseCache = new Map()
+    function aliasOf(name) {
+      if (disguiseCache.has(name)) return disguiseCache.get(name)
+      let hash = 7
+      for (let index = 0; index < name.length; index += 1) {
+        hash = (hash * 31 + name.charCodeAt(index)) % 99991
+      }
+      const noun = DISGUISE_NOUNS[hash % DISGUISE_NOUNS.length]
+      const alias = `${noun}-${String(hash % 997).padStart(2, '0')}`
+      disguiseCache.set(name, alias)
+      return alias
+    }
+
+    /** The name a user-facing surface should print. */
+    function labelOf(name) {
+      return danmaku.disguise ? aliasOf(name) : name
+    }
+
     function signed(value, digits) {
       if (!Number.isFinite(value)) return '--'
       return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`
@@ -752,7 +785,7 @@ window.__ModuleLoader__.load({
       const color = colorOf(quote?.pct)
       const arrow = !Number.isFinite(quote?.pct) || quote.pct === 0 ? '' : quote.pct > 0 ? '▲' : '▼'
       return h('span', { key, style: { marginRight: 16 } },
-        h('span', { style: { color: QUIET } }, `${name} `),
+        h('span', { style: { color: QUIET } }, `${labelOf(name)} `),
         h('span', { style: { color: TEXT, fontVariantNumeric: 'tabular-nums' } }, `${priceOf(quote?.price)} `),
         h('span', { style: { color, fontWeight: 600 } }, `${arrow}${signed(quote?.pct, 2)}%`),
       )
@@ -784,16 +817,27 @@ window.__ModuleLoader__.load({
       return { color: FAINT, text: market.state }
     }
 
+    /** Session labels that read as service states instead of market phases. */
+    const DISGUISE_STATES = {
+      交易中: '运行中',
+      集合竞价: '预热中',
+      午间休市: '低峰期',
+      已收盘: '已结束',
+      未开盘: '待调度',
+      休市: '离线',
+    }
+
     function Ticker() {
-      const { snapshot: snap, selection: shown, width: capsuleWidth, stocks: watchlist, scheme: theme } = useShared()
+      const { snapshot: snap, selection: shown, width: capsuleWidth, stocks: watchlist, scheme: theme, danmaku: config } = useShared()
       const rows = selectedRows(shown, watchlist)
       const status = statusOf(snap.market)
+      const statusText = config.disguise ? (DISGUISE_STATES[status.text] || '运行中') : status.text
 
       const waiting = snap.stale ? '行情不可用' : '行情加载中…'
       const content = snap.at === 0
-        ? h('span', { style: { color: QUIET } }, waiting)
+        ? h('span', { style: { color: QUIET } }, config.disguise ? '加载中…' : waiting)
         : rows.length === 0
-          ? h('span', { style: { color: QUIET } }, '未选择品种')
+          ? h('span', { style: { color: QUIET } }, config.disguise ? '无指标' : '未选择品种')
           : rows.map((row) => tickerItem(row.key, row.name, row.quote))
 
       const half = h('span', {
@@ -806,7 +850,7 @@ window.__ModuleLoader__.load({
       return h('span', { className: 'dsh-index-shell', 'data-scheme': theme },
         h('span', {
           className: 'dsh-index-dot',
-          title: status.text,
+          title: statusText,
           style: {
             background: status.color,
             boxShadow: snap.market.live ? `0 0 6px ${status.color}` : 'none',
@@ -816,7 +860,9 @@ window.__ModuleLoader__.load({
           className: 'dsh-index-ticker',
           role: 'button',
           tabIndex: 0,
-          title: `${status.text}　A股 · 贵金属 · 自选 · 板块　点击查看全部`,
+          title: config.disguise
+            ? `${statusText}　调度队列 · 服务指标　点击查看详情`
+            : `${status.text}　A股 · 贵金属 · 自选 · 板块　点击查看全部`,
           style: {
             fontFamily: MONO, fontSize: 11, lineHeight: '22px',
             width: capsuleWidth,
@@ -922,7 +968,7 @@ window.__ModuleLoader__.load({
           },
           onAnimationEnd: () => drop(item.id),
         },
-          h('span', { style: { color: TEXT, opacity: 0.85 } }, `${item.name}  `),
+          h('span', { style: { color: TEXT, opacity: 0.85 } }, `${labelOf(item.name)}  `),
           `${priceOf(item.quote.price)}  `,
           `${item.quote.pct > 0 ? '▲' : item.quote.pct < 0 ? '▼' : ''}${signed(item.quote.pct, 2)}%`,
         )))
@@ -1204,6 +1250,18 @@ window.__ModuleLoader__.load({
         h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 10, lineHeight: 1.7 } },
           '打开后行情在整个窗口里飘过，鼠标穿透、不挡操作；顶部胶囊仍在，点它看全部报价。',
           prefersReducedMotion() ? ' 系统已开启「减少动态效果」，弹幕会自动保持关闭。' : ''),
+
+        h('div', { style: { marginTop: 16, paddingTop: 12, borderTop: `1px solid ${LINE}` } },
+          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+            h('span', { style: { color: QUIET, fontSize: 11 } }, '伪装模式'),
+            h('div', { style: { display: 'flex', gap: 6 } },
+              chip('d1', '开', config.disguise === true, () => setDanmaku({ disguise: true })),
+              chip('d0', '关', config.disguise !== true, () => setDanmaku({ disguise: false })),
+            )),
+          h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 8, lineHeight: 1.7 } },
+            '开启后，胶囊和弹幕里的品种名换成固定的工作词（「任务队列-42」这种），状态也说成「运行中 / 预热中」；'
+            + '同一个品种永远对应同一个词，所以看着乱、实际认得出。点开弹窗仍是真名。'),
+        ),
       )
     }
 
