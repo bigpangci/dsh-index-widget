@@ -14,17 +14,29 @@ A股行情胶囊，挂在 DeepSeek Harness Web 界面会话标题栏上：默认
 
 ## 安装
 
-需要 DeepSeek Harness（桌面版或 `dsh web`）。
+需要 DeepSeek Harness（桌面版或 `dsh web`）。这是本地 bundle，不走 npm，两种装法任选。
 
-1. 把仓库放到任意目录，例如 `~/plugins/dsh-index-widget`。
-2. 在 Harness 里安装该目录作为 bundle：
+**A. 交给 Harness 里的 Agent**
 
-   ```sh
-   dsh plugin install ~/plugins/dsh-index-widget
+让它用 `plugin_manager` 的 `install_bundle` 把这个目录装成 bundle，`target` 传目录的绝对路径。装完刷新页面。
+
+**B. 手动挂到 profile**
+
+1. 把仓库放到任意目录，例如 `C:\plugins\dsh-index-widget`。
+2. 打开 profile 的 `package.json`（桌面版在 `%USERPROFILE%\.dsh\profiles\desktop\package.json`），两处都加一行：
+
+   ```json
+   "dependencies": {
+     "dsh-index-widget": "link:C:/plugins/dsh-index-widget"
+   },
+   "dsh": {
+     "profile": {
+       "bundles": ["...", "dsh-index-widget"]
+     }
+   }
    ```
 
-   也可以让 Agent 调用 `plugin_manager` 的 `install_bundle`，`target` 传目录绝对路径。
-3. 刷新页面（Ctrl+R），标题栏出现胶囊即成功。
+3. 重启 Harness，然后刷新页面（Ctrl+R），标题栏出现胶囊即成功。
 
 ## 使用
 
