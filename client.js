@@ -56,6 +56,7 @@ window.__ModuleLoader__.load({
       font: 'mono',
       weight: 500,
       bubble: false,
+      spike: true,
     }
 
     /** Danmaku travel directions; `alt` picks one per item. */
@@ -101,6 +102,12 @@ window.__ModuleLoader__.load({
 
     /** Hard ceiling on live items, so a stalled compositor cannot pile them up. */
     const DANMAKU_MAX = 18
+
+    /** Percentage-point move between two refreshes that triggers a spike highlight. */
+    const SPIKE_PCT = 0.5
+
+    /** How long a spike stays highlighted, milliseconds. */
+    const SPIKE_MS = 15000
 
     /** Broad market indices. */
     const INDICES = [
@@ -295,6 +302,12 @@ window.__ModuleLoader__.load({
         box-shadow: var(--dsh-bubble-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
         text-shadow: none;
       }
+      .dsh-index-danmaku-hot {
+        text-shadow: 0 0 12px currentColor, 0 1px 2px rgba(0, 0, 0, 0.4);
+      }
+      .dsh-index-danmaku-bubble.dsh-index-danmaku-hot {
+        box-shadow: var(--dsh-bubble-shadow), 0 0 14px currentColor, inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
       .dsh-index-body { overflow-y: auto; max-height: 58vh; margin-right: -4px; padding-right: 4px; }
       .dsh-index-body::-webkit-scrollbar { width: 6px; }
       .dsh-index-body::-webkit-scrollbar-thumb { background: var(--dsh-capsule-border); border-radius: 3px; }
@@ -445,6 +458,7 @@ window.__ModuleLoader__.load({
         font: Object.prototype.hasOwnProperty.call(FONT_STACKS, saved?.font) ? saved.font : DANMAKU_DEFAULT.font,
         weight: Number(saved?.weight) === 700 ? 700 : DANMAKU_DEFAULT.weight,
         bubble: saved?.bubble === true,
+        spike: saved?.spike !== false,
       }
     }
 
@@ -500,6 +514,12 @@ window.__ModuleLoader__.load({
 
     /** Danmaku layer settings. */
     let danmaku = readDanmaku()
+
+    /** Previous change percentage per secid, for spike detection between refreshes. */
+    const pctSeen = new Map()
+
+    /** Secids highlighted as spiking, with the timestamp their highlight ends. */
+    const spikeUntil = new Map()
 
     /** Dialog visibility, shared by the header capsule and the overlay dialog. */
     let open = false
@@ -677,6 +697,16 @@ window.__ModuleLoader__.load({
         }
         if (renamed) saveStocks()
 
+        const now = Date.now()
+        for (const secid of Object.keys(quotes)) {
+          const previous = pctSeen.get(secid)
+          const pct = quotes[secid].pct
+          if (Number.isFinite(previous) && danmaku.spike !== false && Math.abs(pct - previous) >= SPIKE_PCT) {
+            spikeUntil.set(secid, now + SPIKE_MS)
+          }
+          pctSeen.set(secid, pct)
+        }
+
         patch({
           quotes,
           breadth: breadth.markets > 0 ? breadth : null,
@@ -843,6 +873,7 @@ window.__ModuleLoader__.load({
             top = 56 + lane.current * laneHeight
           }
           setItems((prev) => {
+            const hot = danmaku.spike !== false && (spikeUntil.get(row.key) || 0) > Date.now()
             const item = {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               name: row.name,
@@ -850,6 +881,7 @@ window.__ModuleLoader__.load({
               dir: mode,
               top,
               left,
+              hot,
               scale: 0.9 + Math.random() * 0.24,
               alpha: 0.82 + Math.random() * 0.36,
               duration: Math.round(config.speed * 1000 * (0.85 + Math.random() * 0.3)),
@@ -875,16 +907,16 @@ window.__ModuleLoader__.load({
       },
         items.map((item) => h('span', {
           key: item.id,
-          className: config.bubble ? 'dsh-index-danmaku-item dsh-index-danmaku-bubble' : 'dsh-index-danmaku-item',
+          className: `dsh-index-danmaku-item${config.bubble ? ' dsh-index-danmaku-bubble' : ''}${item.hot ? ' dsh-index-danmaku-hot' : ''}`,
           style: {
             top: item.top,
             left: item.left,
             fontFamily,
-            fontSize: Math.round(config.size * item.scale * 10) / 10,
+            fontSize: Math.round((config.size * item.scale + (item.hot ? 3 : 0)) * 10) / 10,
             fontWeight: config.weight,
             lineHeight: 1.2,
             color: colorOf(item.quote.pct),
-            opacity: Math.min(1, config.opacity * item.alpha),
+            opacity: item.hot ? Math.max(0.92, Math.min(1, config.opacity * item.alpha)) : Math.min(1, config.opacity * item.alpha),
             animationName: `dsh-index-danmaku-${item.dir}`,
             animationDuration: `${item.duration}ms`,
           },
@@ -1163,6 +1195,12 @@ window.__ModuleLoader__.load({
           chip('b0', '无', config.bubble !== true, () => setDanmaku({ bubble: false })),
           chip('b1', '有', config.bubble === true, () => setDanmaku({ bubble: true })),
         ]),
+        group('突变脉冲', [
+          chip('p1', '开', config.spike !== false, () => setDanmaku({ spike: true })),
+          chip('p0', '关', config.spike === false, () => setDanmaku({ spike: false })),
+        ]),
+        h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 6, lineHeight: 1.7 } },
+          `两次刷新间涨跌幅跳动 ≥ ${SPIKE_PCT}% 的品种，飘过时会放大 3px、拉满亮度并带光晕，持续 ${SPIKE_MS / 1000} 秒。`),
         h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 10, lineHeight: 1.7 } },
           '打开后行情在整个窗口里飘过，鼠标穿透、不挡操作；顶部胶囊仍在，点它看全部报价。',
           prefersReducedMotion() ? ' 系统已开启「减少动态效果」，弹幕会自动保持关闭。' : ''),
