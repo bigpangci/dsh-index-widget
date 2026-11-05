@@ -46,7 +46,40 @@ window.__ModuleLoader__.load({
 
     /** localStorage key and defaults for the danmaku layer. */
     const DANMAKU_KEY = 'dsh-index-widget:danmaku'
-    const DANMAKU_DEFAULT = { on: false, size: 15, speed: 24, opacity: 0.5, density: 1 }
+    const DANMAKU_DEFAULT = {
+      on: false,
+      size: 15,
+      speed: 24,
+      opacity: 0.5,
+      density: 1,
+      direction: 'rtl',
+      font: 'mono',
+      weight: 500,
+      bubble: false,
+    }
+
+    /** Danmaku travel directions; `alt` picks one per item. */
+    const DIRECTIONS = [
+      ['rtl', '从右往左'],
+      ['ltr', '从左往右'],
+      ['alt', '两边交替'],
+    ]
+
+    /** Danmaku typefaces offered in the settings panel. */
+    const FONT_STACKS = {
+      mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      sans: 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif',
+      serif: 'Georgia, "Times New Roman", "Songti SC", SimSun, serif',
+      kai: 'KaiTi, "Kaiti SC", STKaiti, "Songti SC", serif',
+    }
+
+    /** Danmaku typeface choices, in display order. */
+    const FONTS = [
+      ['mono', '等宽'],
+      ['sans', '黑体'],
+      ['serif', '衬线'],
+      ['kai', '楷体'],
+    ]
 
     /** Danmaku font size range, pixels. */
     const SIZE_MIN = 10
@@ -155,6 +188,9 @@ window.__ModuleLoader__.load({
         --dsh-backdrop: rgba(6, 9, 14, 0.55);
         --dsh-chip: #b9c3d1;
         --dsh-field: rgba(8, 11, 16, 0.6);
+        --dsh-bubble: rgba(10, 14, 20, 0.62);
+        --dsh-bubble-border: rgba(255, 255, 255, 0.14);
+        --dsh-bubble-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
       }
       .dsh-index-shell[data-scheme="light"], .dsh-index-panel[data-scheme="light"], .dsh-index-danmaku[data-scheme="light"] {
         --dsh-up: #d92b2b;
@@ -174,6 +210,9 @@ window.__ModuleLoader__.load({
         --dsh-backdrop: rgba(18, 26, 38, 0.28);
         --dsh-chip: #3d4653;
         --dsh-field: rgba(255, 255, 255, 0.9);
+        --dsh-bubble: rgba(255, 255, 255, 0.86);
+        --dsh-bubble-border: rgba(15, 23, 32, 0.14);
+        --dsh-bubble-shadow: 0 2px 10px rgba(18, 28, 42, 0.16);
       }
       @keyframes dsh-index-marquee {
         from { transform: translateX(0); }
@@ -202,9 +241,13 @@ window.__ModuleLoader__.load({
         animation: dsh-index-marquee var(--dsh-index-lap, 26s) linear infinite;
       }
       .dsh-index-ticker:hover .dsh-index-track { animation-play-state: paused; }
-      @keyframes dsh-index-danmaku {
+      @keyframes dsh-index-danmaku-rtl {
         from { transform: translate3d(100vw, 0, 0); }
         to { transform: translate3d(-100%, 0, 0); }
+      }
+      @keyframes dsh-index-danmaku-ltr {
+        from { transform: translate3d(-100%, 0, 0); }
+        to { transform: translate3d(100vw, 0, 0); }
       }
       .dsh-index-danmaku {
         position: fixed;
@@ -220,10 +263,17 @@ window.__ModuleLoader__.load({
         white-space: nowrap;
         font-variant-numeric: tabular-nums;
         will-change: transform;
-        animation-name: dsh-index-danmaku;
         animation-timing-function: linear;
         animation-fill-mode: forwards;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+      }
+      .dsh-index-danmaku-bubble {
+        padding: 2px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--dsh-bubble-border);
+        background: var(--dsh-bubble);
+        box-shadow: var(--dsh-bubble-shadow);
+        text-shadow: none;
       }
       .dsh-index-body { overflow-y: auto; max-height: 58vh; margin-right: -4px; padding-right: 4px; }
       .dsh-index-body::-webkit-scrollbar { width: 6px; }
@@ -371,6 +421,10 @@ window.__ModuleLoader__.load({
         speed: clamp(saved?.speed, SPEED_MIN, SPEED_MAX, DANMAKU_DEFAULT.speed),
         opacity: clamp(saved?.opacity, OPACITY_MIN, OPACITY_MAX, DANMAKU_DEFAULT.opacity),
         density: clamp(saved?.density, DENSITY_MIN, DENSITY_MAX, DANMAKU_DEFAULT.density),
+        direction: DIRECTIONS.some((entry) => entry[0] === saved?.direction) ? saved.direction : DANMAKU_DEFAULT.direction,
+        font: Object.prototype.hasOwnProperty.call(FONT_STACKS, saved?.font) ? saved.font : DANMAKU_DEFAULT.font,
+        weight: Number(saved?.weight) === 700 ? 700 : DANMAKU_DEFAULT.weight,
+        bubble: saved?.bubble === true,
       }
     }
 
@@ -760,6 +814,7 @@ window.__ModuleLoader__.load({
               quote: row.quote,
               top: 56 + lane.current * laneHeight,
               duration: Math.round(config.speed * 1000 * (0.85 + Math.random() * 0.3)),
+              reverse: config.direction === 'alt' ? Math.random() < 0.5 : config.direction === 'ltr',
             }
             const kept = prev.length >= DANMAKU_MAX ? prev.slice(prev.length - DANMAKU_MAX + 1) : prev
             return kept.concat([item])
@@ -768,23 +823,26 @@ window.__ModuleLoader__.load({
         spawn()
         const timer = setInterval(spawn, Math.max(400, Math.round(1600 / config.density)))
         return () => clearInterval(timer)
-      }, [enabled, config.size, config.speed, config.density])
+      }, [enabled, config.size, config.speed, config.density, config.direction])
 
       if (!enabled) return null
 
       const drop = (id) => setItems((prev) => prev.filter((item) => item.id !== id))
+      const fontFamily = FONT_STACKS[config.font] || MONO
 
       return h('div', { className: 'dsh-index-danmaku', 'data-scheme': theme, 'aria-hidden': 'true' },
         items.map((item) => h('span', {
           key: item.id,
-          className: 'dsh-index-danmaku-item',
+          className: config.bubble ? 'dsh-index-danmaku-item dsh-index-danmaku-bubble' : 'dsh-index-danmaku-item',
           style: {
             top: item.top,
-            fontFamily: MONO,
+            fontFamily,
             fontSize: config.size,
+            fontWeight: config.weight,
             lineHeight: 1.2,
             color: colorOf(item.quote.pct),
             opacity: config.opacity,
+            animationName: item.reverse ? 'dsh-index-danmaku-ltr' : 'dsh-index-danmaku-rtl',
             animationDuration: `${item.duration}ms`,
           },
           onAnimationEnd: () => drop(item.id),
@@ -982,7 +1040,7 @@ window.__ModuleLoader__.load({
       const { width: current, danmaku: config } = useShared()
       const presets = [150, 220, 300, 400]
       const slider = (label, text, min, max, step, value, onChange) => h('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: config.on ? 1 : 0.45 },
+        style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: config.on ? 1 : 0.5 },
       },
         h('span', { style: { color: QUIET, fontSize: 11, width: 60 } }, label),
         h('input', {
@@ -991,11 +1049,21 @@ window.__ModuleLoader__.load({
           max,
           step,
           value,
-          disabled: !config.on,
-          style: { flex: 1, accentColor: UP, cursor: config.on ? 'pointer' : 'default' },
+          style: { flex: 1, accentColor: UP, cursor: 'pointer' },
           onChange: (event) => onChange(Number(event.target.value)),
         }),
         h('span', { style: { fontFamily: MONO, fontSize: 11.5, color: TEXT, width: 60, textAlign: 'right' } }, text),
+      )
+      const chip = (key, text, active, onClick) => h('button', {
+        key,
+        type: 'button',
+        className: 'dsh-index-chip',
+        'data-on': active ? 'true' : 'false',
+        onClick,
+      }, text)
+      const group = (label, children) => h('div', { style: { marginTop: 12, opacity: config.on ? 1 : 0.5 } },
+        h('div', { style: { color: QUIET, fontSize: 11, marginBottom: 6 } }, label),
+        h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } }, children),
       )
 
       return h('div', { style: { paddingTop: 10 } },
@@ -1042,6 +1110,16 @@ window.__ModuleLoader__.load({
         slider('速度', `${Math.round(config.speed)} 秒`, SPEED_MIN, SPEED_MAX, 1, config.speed, (v) => setDanmaku({ speed: v })),
         slider('密度', `${config.density.toFixed(1)}×`, DENSITY_MIN, DENSITY_MAX, 0.1, config.density, (v) => setDanmaku({ density: v })),
         slider('不透明度', `${Math.round(config.opacity * 100)}%`, OPACITY_MIN, OPACITY_MAX, 0.05, config.opacity, (v) => setDanmaku({ opacity: v })),
+        group('方向', DIRECTIONS.map(([value, text]) => chip(value, text, config.direction === value, () => setDanmaku({ direction: value })))),
+        group('字体', FONTS.map(([value, text]) => chip(value, text, config.font === value, () => setDanmaku({ font: value })))),
+        group('字重', [
+          chip('w500', '常规', config.weight === 500, () => setDanmaku({ weight: 500 })),
+          chip('w700', '加粗', config.weight === 700, () => setDanmaku({ weight: 700 })),
+        ]),
+        group('气泡底', [
+          chip('b0', '无', config.bubble !== true, () => setDanmaku({ bubble: false })),
+          chip('b1', '有', config.bubble === true, () => setDanmaku({ bubble: true })),
+        ]),
         h('div', { style: { color: FAINT, fontSize: 10.5, marginTop: 10, lineHeight: 1.7 } },
           '打开后行情在整个窗口里飘过，鼠标穿透、不挡操作；顶部胶囊仍在，点它看全部报价。',
           prefersReducedMotion() ? ' 系统已开启「减少动态效果」，弹幕会自动保持关闭。' : ''),
@@ -1102,7 +1180,7 @@ window.__ModuleLoader__.load({
       if (view === 'content') {
         content = h(ContentPicker)
       } else if (view === 'appearance') {
-        content = h(Appearance)
+        content = h('div', { className: 'dsh-index-body' }, h(Appearance))
       } else {
         const pick = (items, codes) => codes
           .map((code) => items.find((entry) => entry.code === code))
