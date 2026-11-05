@@ -266,7 +266,16 @@ window.__ModuleLoader__.load({
         pointer-events: none;
         user-select: none;
         z-index: 900;
+        -webkit-mask-image:
+          linear-gradient(90deg, transparent 0, #000 48px, #000 calc(100% - 48px), transparent),
+          linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent);
+        -webkit-mask-composite: source-in;
+        mask-image:
+          linear-gradient(90deg, transparent 0, #000 48px, #000 calc(100% - 48px), transparent),
+          linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent);
+        mask-composite: intersect;
       }
+      .dsh-index-danmaku-paused .dsh-index-danmaku-item { animation-play-state: paused; }
       .dsh-index-danmaku-item {
         position: absolute;
         left: 0;
@@ -278,11 +287,12 @@ window.__ModuleLoader__.load({
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
       }
       .dsh-index-danmaku-bubble {
-        padding: 2px 9px;
+        padding: 2px 10px 2px 11px;
         border-radius: 999px;
         border: 1px solid var(--dsh-bubble-border);
+        border-left: 2px solid currentColor;
         background: var(--dsh-bubble);
-        box-shadow: var(--dsh-bubble-shadow);
+        box-shadow: var(--dsh-bubble-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
         text-shadow: none;
       }
       .dsh-index-body { overflow-y: auto; max-height: 58vh; margin-right: -4px; padding-right: 4px; }
@@ -799,7 +809,7 @@ window.__ModuleLoader__.load({
      * and are capped, so the layer cannot block or slow down normal work.
      */
     function Danmaku() {
-      const { danmaku: config, scheme: theme } = useShared()
+      const { danmaku: config, scheme: theme, open: dialogOpen } = useShared()
       const [items, setItems] = React.useState([])
       const lane = React.useRef(0)
       const enabled = config.on && !prefersReducedMotion()
@@ -809,6 +819,7 @@ window.__ModuleLoader__.load({
           setItems([])
           return undefined
         }
+        if (dialogOpen) return undefined
         const spawn = () => {
           if (document.hidden) return
           const rows = selectedRows(selection, stocks).filter((row) => row.quote && Number.isFinite(row.quote.price))
@@ -826,8 +837,8 @@ window.__ModuleLoader__.load({
             const columnWidth = window.innerWidth / columns
             left = Math.round(Math.min((lane.current + 0.5) * columnWidth, window.innerWidth - 150))
           } else {
-            const laneHeight = Math.round(config.size * 2.2)
-            const lanes = Math.max(1, Math.floor((window.innerHeight - 120) / laneHeight))
+            const laneHeight = Math.round(config.size * 2.4)
+            const lanes = Math.max(1, Math.floor((window.innerHeight - 160) / laneHeight))
             lane.current = (lane.current + 1 + Math.floor(Math.random() * 3)) % lanes
             top = 56 + lane.current * laneHeight
           }
@@ -839,6 +850,8 @@ window.__ModuleLoader__.load({
               dir: mode,
               top,
               left,
+              scale: 0.9 + Math.random() * 0.24,
+              alpha: 0.82 + Math.random() * 0.36,
               duration: Math.round(config.speed * 1000 * (0.85 + Math.random() * 0.3)),
             }
             const kept = prev.length >= DANMAKU_MAX ? prev.slice(prev.length - DANMAKU_MAX + 1) : prev
@@ -848,14 +861,18 @@ window.__ModuleLoader__.load({
         spawn()
         const timer = setInterval(spawn, Math.max(400, Math.round(1600 / config.density)))
         return () => clearInterval(timer)
-      }, [enabled, config.size, config.speed, config.density, config.direction])
+      }, [enabled, dialogOpen, config.size, config.speed, config.density, config.direction])
 
       if (!enabled) return null
 
       const drop = (id) => setItems((prev) => prev.filter((item) => item.id !== id))
       const fontFamily = FONT_STACKS[config.font] || MONO
 
-      return h('div', { className: 'dsh-index-danmaku', 'data-scheme': theme, 'aria-hidden': 'true' },
+      return h('div', {
+        className: dialogOpen ? 'dsh-index-danmaku dsh-index-danmaku-paused' : 'dsh-index-danmaku',
+        'data-scheme': theme,
+        'aria-hidden': 'true',
+      },
         items.map((item) => h('span', {
           key: item.id,
           className: config.bubble ? 'dsh-index-danmaku-item dsh-index-danmaku-bubble' : 'dsh-index-danmaku-item',
@@ -863,11 +880,11 @@ window.__ModuleLoader__.load({
             top: item.top,
             left: item.left,
             fontFamily,
-            fontSize: config.size,
+            fontSize: Math.round(config.size * item.scale * 10) / 10,
             fontWeight: config.weight,
             lineHeight: 1.2,
             color: colorOf(item.quote.pct),
-            opacity: config.opacity,
+            opacity: Math.min(1, config.opacity * item.alpha),
             animationName: `dsh-index-danmaku-${item.dir}`,
             animationDuration: `${item.duration}ms`,
           },
