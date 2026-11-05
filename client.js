@@ -62,7 +62,9 @@ window.__ModuleLoader__.load({
     const DIRECTIONS = [
       ['rtl', '从右往左'],
       ['ltr', '从左往右'],
-      ['alt', '两边交替'],
+      ['ttb', '从上往下'],
+      ['btt', '从下往上'],
+      ['alt', '随机'],
     ]
 
     /** Danmaku typefaces offered in the settings panel. */
@@ -248,6 +250,14 @@ window.__ModuleLoader__.load({
       @keyframes dsh-index-danmaku-ltr {
         from { transform: translate3d(-100%, 0, 0); }
         to { transform: translate3d(100vw, 0, 0); }
+      }
+      @keyframes dsh-index-danmaku-ttb {
+        from { transform: translate3d(0, -100%, 0); }
+        to { transform: translate3d(0, 100vh, 0); }
+      }
+      @keyframes dsh-index-danmaku-btt {
+        from { transform: translate3d(0, 100vh, 0); }
+        to { transform: translate3d(0, -100%, 0); }
       }
       .dsh-index-danmaku {
         position: fixed;
@@ -804,17 +814,32 @@ window.__ModuleLoader__.load({
           const rows = selectedRows(selection, stocks).filter((row) => row.quote && Number.isFinite(row.quote.price))
           if (rows.length === 0) return
           const row = rows[Math.floor(Math.random() * rows.length)]
-          const laneHeight = Math.round(config.size * 2.2)
-          const lanes = Math.max(1, Math.floor((window.innerHeight - 120) / laneHeight))
-          lane.current = (lane.current + 1 + Math.floor(Math.random() * 3)) % lanes
+          const mode = config.direction === 'alt'
+            ? DIRECTIONS[Math.floor(Math.random() * 4)][0]
+            : config.direction
+          const vertical = mode === 'ttb' || mode === 'btt'
+          let top = 0
+          let left = 0
+          if (vertical) {
+            const columns = Math.max(1, Math.floor(window.innerWidth / 150))
+            lane.current = (lane.current + 1 + Math.floor(Math.random() * 2)) % columns
+            const columnWidth = window.innerWidth / columns
+            left = Math.round(Math.min((lane.current + 0.5) * columnWidth, window.innerWidth - 150))
+          } else {
+            const laneHeight = Math.round(config.size * 2.2)
+            const lanes = Math.max(1, Math.floor((window.innerHeight - 120) / laneHeight))
+            lane.current = (lane.current + 1 + Math.floor(Math.random() * 3)) % lanes
+            top = 56 + lane.current * laneHeight
+          }
           setItems((prev) => {
             const item = {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               name: row.name,
               quote: row.quote,
-              top: 56 + lane.current * laneHeight,
+              dir: mode,
+              top,
+              left,
               duration: Math.round(config.speed * 1000 * (0.85 + Math.random() * 0.3)),
-              reverse: config.direction === 'alt' ? Math.random() < 0.5 : config.direction === 'ltr',
             }
             const kept = prev.length >= DANMAKU_MAX ? prev.slice(prev.length - DANMAKU_MAX + 1) : prev
             return kept.concat([item])
@@ -836,13 +861,14 @@ window.__ModuleLoader__.load({
           className: config.bubble ? 'dsh-index-danmaku-item dsh-index-danmaku-bubble' : 'dsh-index-danmaku-item',
           style: {
             top: item.top,
+            left: item.left,
             fontFamily,
             fontSize: config.size,
             fontWeight: config.weight,
             lineHeight: 1.2,
             color: colorOf(item.quote.pct),
             opacity: config.opacity,
-            animationName: item.reverse ? 'dsh-index-danmaku-ltr' : 'dsh-index-danmaku-rtl',
+            animationName: `dsh-index-danmaku-${item.dir}`,
             animationDuration: `${item.duration}ms`,
           },
           onAnimationEnd: () => drop(item.id),
